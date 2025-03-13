@@ -1,153 +1,192 @@
-import phonenumbers
-from phonenumbers import geocoder, carrier, timezone
+import random
+import time
 import sys
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
-import logging
 from datetime import datetime
+import logging
+import json
 
 # Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('phone_info.log'),
+        logging.FileHandler('whatsapp_generator.log'),
         logging.StreamHandler()
     ]
 )
 
-# Colores para la consola
+# Colores ANSI para la consola
 class Colors:
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
 
 @dataclass
-class PhoneInfo:
-    """Clase para almacenar la información del número telefónico"""
-    number: str
-    country: str
-    carrier: str
-    time_zones: list
-    valid: bool
-    possible: bool
-    type: str
-    format_national: str
-    format_international: str
+class CountryCode:
+    prefix: str
+    area_codes: List[int]
+    phone_length: int = 8  # Longitud predeterminada del número local
 
-class PhoneAnalyzer:
-    def __init__(self):
-        self.history: Dict[str, PhoneInfo] = {}
+class PhoneNumberGenerator:
+    def __init__(self, countries_file: str = 'countries_data.json'):
+        self.countries_data = self._load_countries_data(countries_file)
+        self.generated_numbers: set = set()
         self.start_time = datetime.now()
 
-    def analyze_number(self, phone_number: str) -> Optional[PhoneInfo]:
-        """Analiza un número telefónico y retorna su información"""
+    def _load_countries_data(self, file_path: str) -> Dict:
         try:
-            # Si el número ya fue analizado, retornamos la información guardada
-            if phone_number in self.history:
-                logging.info(f"Recuperando información guardada para {phone_number}")
-                return self.history[phone_number]
+            with open(file_path, 'r', encoding='utf-8') as file:
+                return json.load(file)
+        except FileNotFoundError:
+            # Si el archivo no existe, usar datos predeterminados
+            return {
+                "Argentina": {
+                    "prefix": "+54",
+                    "area_codes": [92325],  # Solo área de San Andrés de Giles
+                    "phone_length": 8
+                },
+                "México": {
+                    "prefix": "+52",
+                    "area_codes": [55, 33, 81, 777, 662, 999, 222, 333, 442],
+                    "phone_length": 8
+                },
+                "España": {
+                    "prefix": "+34",
+                    "area_codes": [91, 93, 95, 96, 98, 81, 82, 91, 92],
+                    "phone_length": 8
+                },
+                "Colombia": {
+                    "prefix": "+57",
+                    "area_codes": [1, 2, 3, 4, 5, 7, 8, 9],
+                    "phone_length": 8
+                }
+            }
 
-            # Parsear el número
-            parsed_number = phonenumbers.parse(phone_number)
+    def generate_whatsapp_number(self, country: str) -> Optional[str]:
+        """
+        Genera un número de WhatsApp único para el país especificado.
+        """
+        try:
+            country_data = self.countries_data.get(country)
+            if not country_data:
+                raise ValueError(f"País no soportado: {country}")
 
-            # Obtener información
-            info = PhoneInfo(
-                number=phone_number,
-                country=geocoder.description_for_number(parsed_number, "es"),
-                carrier=carrier.name_for_number(parsed_number, "es"),
-                time_zones=timezone.time_zones_for_number(parsed_number),
-                valid=phonenumbers.is_valid_number(parsed_number),
-                possible=phonenumbers.is_possible_number(parsed_number),
-                type=self._get_number_type(parsed_number),
-                format_national=phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.NATIONAL),
-                format_international=phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
-            )
+            prefix = country_data["prefix"]
+            area_code = random.choice(country_data["area_codes"])
+            phone_length = country_data.get("phone_length", 8)
 
-            # Guardar en el historial
-            self.history[phone_number] = info
-            return info
+            while True:
+                local_number = random.randint(
+                    10 ** (phone_length - 1),
+                    (10 ** phone_length) - 1
+                )
+                
+                full_number = f"{prefix} {area_code} {local_number}"
+                if full_number not in self.generated_numbers:
+                    self.generated_numbers.add(full_number)
+                    return full_number
 
         except Exception as e:
-            logging.error(f"Error al analizar el número {phone_number}: {str(e)}")
+            logging.error(f"Error generando número: {str(e)}")
             return None
 
-    def _get_number_type(self, parsed_number) -> str:
-        """Determina el tipo de número telefónico"""
-        number_type = phonenumbers.number_type(parsed_number)
-        types = {
-            phonenumbers.PhoneNumberType.MOBILE: "Móvil",
-            phonenumbers.PhoneNumberType.FIXED_LINE: "Fijo",
-            phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "Fijo o Móvil",
-            phonenumbers.PhoneNumberType.TOLL_FREE: "Gratuito",
-            phonenumbers.PhoneNumberType.PREMIUM_RATE: "Premium",
-            phonenumbers.PhoneNumberType.SHARED_COST: "Costo Compartido",
-            phonenumbers.PhoneNumberType.VOIP: "VoIP",
-            phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "Personal",
-            phonenumbers.PhoneNumberType.PAGER: "Localizador",
-            phonenumbers.PhoneNumberType.UAN: "UAN",
-            phonenumbers.PhoneNumberType.UNKNOWN: "Desconocido"
-        }
-        return types.get(number_type, "Desconocido")
+    def verify_number(self, number: str) -> bool:
+        """
+        Simula la verificación de la existencia del número con una probabilidad más realista.
+        """
+        # Simulación más realista: 30% de probabilidad de que el número exista
+        return random.random() < 0.3
 
-    def display_info(self, info: PhoneInfo) -> None:
-        """Muestra la información del número de manera formateada"""
-        print(f"\n{Colors.HEADER}{'='*50}{Colors.RESET}")
-        print(f"{Colors.BOLD}Información del número telefónico{Colors.RESET}")
-        print(f"{Colors.HEADER}{'='*50}{Colors.RESET}\n")
+    def generate_batch(self, country: str, batch_size: int = 1000, delay: float = 1.0):
+        """
+        Genera un lote de números de WhatsApp con estadísticas.
+        """
+        valid_numbers = 0
+        invalid_numbers = 0
+        
+        print(f"\n{Colors.BLUE}Generando números para {country}...{Colors.RESET}\n")
 
-        # Información básica
-        print(f"{Colors.BLUE}Número analizado:{Colors.RESET}")
-        print(f"  Nacional: {Colors.GREEN}{info.format_national}{Colors.RESET}")
-        print(f"  Internacional: {Colors.GREEN}{info.format_international}{Colors.RESET}")
-
-        # Validez
-        valid_status = f"{Colors.GREEN}✓ Válido{Colors.RESET}" if info.valid else f"{Colors.RED}✗ No válido{Colors.RESET}"
-        possible_status = f"{Colors.GREEN}✓ Posible{Colors.RESET}" if info.possible else f"{Colors.RED}✗ No posible{Colors.RESET}"
-        print(f"\n{Colors.BLUE}Estado:{Colors.RESET}")
-        print(f"  Validez: {valid_status}")
-        print(f"  Posibilidad: {possible_status}")
-
-        # Ubicación y tipo
-        print(f"\n{Colors.BLUE}Detalles:{Colors.RESET}")
-        print(f"  País: {Colors.YELLOW}{info.country or 'Desconocido'}{Colors.RESET}")
-        print(f"  Operador: {Colors.YELLOW}{info.carrier or 'Desconocido'}{Colors.RESET}")
-        print(f"  Tipo: {Colors.YELLOW}{info.type}{Colors.RESET}")
-
-        # Zonas horarias
-        print(f"\n{Colors.BLUE}Zonas horarias:{Colors.RESET}")
-        for zone in info.time_zones:
-            print(f"  • {Colors.YELLOW}{zone}{Colors.RESET}")
-
-def main():
-    analyzer = PhoneAnalyzer()
-    
-    print(f"{Colors.HEADER}Analizador de Números Telefónicos{Colors.RESET}")
-    print("Para salir, escribe 'salir' o presiona Ctrl+C\n")
-
-    while True:
         try:
-            number = input(f"\n{Colors.BOLD}Ingresa un número telefónico (con código de país, ej: +34612345678): {Colors.RESET}")
-            
-            if number.lower() in ['salir', 'exit', 'quit']:
-                print(f"\n{Colors.GREEN}¡Hasta luego!{Colors.RESET}")
-                break
+            for i in range(batch_size):
+                number = self.generate_whatsapp_number(country)
+                if not number:
+                    continue
 
-            info = analyzer.analyze_number(number)
-            if info:
-                analyzer.display_info(info)
-            else:
-                print(f"\n{Colors.RED}Error: No se pudo analizar el número. Asegúrate de incluir el código de país.{Colors.RESET}")
+                exists = self.verify_number(number)
+                if exists:
+                    print(f"{Colors.GREEN}{number} ✓{Colors.RESET}")
+                    valid_numbers += 1
+                else:
+                    print(f"{Colors.RED}{number} ✗{Colors.RESET}")
+                    invalid_numbers += 1
+
+                # Mostrar progreso
+                progress = (i + 1) / batch_size * 100
+                sys.stdout.write(f"\rProgreso: {progress:.1f}% ")
+                sys.stdout.flush()
+
+                time.sleep(delay)
 
         except KeyboardInterrupt:
-            print(f"\n\n{Colors.GREEN}¡Hasta luego!{Colors.RESET}")
+            print("\n\nGeneración interrumpida por el usuario.")
+        finally:
+            self._show_statistics(valid_numbers, invalid_numbers)
+
+    def _show_statistics(self, valid: int, invalid: int):
+        """
+        Muestra estadísticas de la generación de números.
+        """
+        total = valid + invalid
+        duration = (datetime.now() - self.start_time).total_seconds()
+        
+        print(f"\n{Colors.BLUE}Estadísticas:{Colors.RESET}")
+        print(f"Total números generados: {total}")
+        print(f"Números válidos: {valid} ({(valid/total*100 if total else 0):.1f}%)")
+        print(f"Números inválidos: {invalid} ({(invalid/total*100 if total else 0):.1f}%)")
+        print(f"Tiempo total: {duration:.2f} segundos")
+        print(f"Velocidad: {total/duration if duration else 0:.2f} números/segundo")
+
+def main():
+    generator = PhoneNumberGenerator()
+    
+    # Mostrar países disponibles
+    print(f"{Colors.BLUE}Países disponibles:{Colors.RESET}")
+    for country in generator.countries_data.keys():
+        print(f"- {country}")
+
+    # Solicitar país al usuario
+    while True:
+        country = input("\nIntroduce el país para generar números de WhatsApp: ").strip()
+        if country in generator.countries_data:
             break
-        except Exception as e:
-            print(f"\n{Colors.RED}Error: {str(e)}{Colors.RESET}")
+        print(f"{Colors.RED}País no válido. Por favor, elige uno de la lista.{Colors.RESET}")
+
+    # Solicitar cantidad de números
+    while True:
+        try:
+            batch_size = int(input("Cantidad de números a generar (máximo 1000): "))
+            if 1 <= batch_size <= 1000:
+                break
+            print(f"{Colors.RED}Por favor, introduce un número entre 1 y 1000.{Colors.RESET}")
+        except ValueError:
+            print(f"{Colors.RED}Por favor, introduce un número válido.{Colors.RESET}")
+
+    # Solicitar delay entre generaciones
+    while True:
+        try:
+            delay = float(input("Tiempo de espera entre números (en segundos, 0-5): "))
+            if 0 <= delay <= 5:
+                break
+            print(f"{Colors.RED}Por favor, introduce un número entre 0 y 5.{Colors.RESET}")
+        except ValueError:
+            print(f"{Colors.RED}Por favor, introduce un número válido.{Colors.RESET}")
+
+    # Iniciar generación
+    generator.generate_batch(country, batch_size, delay)
 
 if __name__ == "__main__":
     main()
