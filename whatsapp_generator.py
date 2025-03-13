@@ -46,7 +46,7 @@ class PhoneNumberGenerator:
             return {
                 "Argentina": {
                     "prefix": "+54",
-                    "area_codes": [11, 221, 223, 261, 264, 291, 297, 341, 342, 343],
+                    "area_codes": [92325],  # Solo área de San Andrés de Giles
                     "phone_length": 8
                 },
                 "México": {
